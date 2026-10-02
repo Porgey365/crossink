@@ -6,6 +6,7 @@
 #include <GrimmoryStore.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderDocumentId.h>
 #include <Logging.h>
 #include <WiFi.h>
 
@@ -473,7 +474,14 @@ void GrimmoryLibraryActivity::loadBooks() {
     row.kind = Row::Kind::BOOK;
     row.label = books[i].title;
     row.subtitle = books[i].authors;
-    if (Storage.exists(destinationPathFor(books[i]).c_str())) {
+    const std::string localPath = destinationPathFor(books[i]);
+    if (Storage.exists(localPath.c_str())) {
+      // Books downloaded before the ID index existed: record them now so
+      // progress sync can update Grimmory's main progress for them too.
+      const std::string documentHash = KOReaderDocumentId::calculate(localPath);
+      if (!documentHash.empty() && GrimmoryBookIndex::find(documentHash) != books[i].id) {
+        GrimmoryBookIndex::remember(documentHash, books[i].id);
+      }
       row.subtitle =
           row.subtitle.empty() ? tr(STR_GRIMMORY_ON_DEVICE) : row.subtitle + " - " + tr(STR_GRIMMORY_ON_DEVICE);
     }

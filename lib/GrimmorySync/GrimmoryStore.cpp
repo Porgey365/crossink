@@ -104,3 +104,36 @@ std::string GrimmoryStore::getKoSyncBaseUrl() const {
   const std::string base = getBaseUrl();
   return base.empty() ? "" : base + "/api/koreader";
 }
+
+namespace GrimmoryBookIndex {
+namespace {
+constexpr char INDEX_PATH[] = "/.crosspoint/grimmory_books.json";
+// Each entry is ~50 bytes; this keeps the file and its parse well under 64 KB.
+constexpr size_t MAX_ENTRIES = 1000;
+}  // namespace
+
+bool remember(const std::string& documentHash, const int64_t bookId) {
+  if (documentHash.empty() || bookId <= 0) return false;
+  JsonDocument doc;
+  PersistableStoreBase::readDocFromFile(INDEX_PATH, doc);
+  if (!doc.is<JsonObject>()) doc.to<JsonObject>();
+  JsonObject books = doc.as<JsonObject>();
+  if (!books[documentHash.c_str()].is<int64_t>() && books.size() >= MAX_ENTRIES) {
+    // Drop the oldest entry (insertion order) to make room.
+    books.remove(books.begin());
+  }
+  books[documentHash.c_str()] = bookId;
+  if (!PersistableStoreBase::writeDocToFileAtomically(INDEX_PATH, doc)) {
+    LOG_ERR("GRS", "Failed to save Grimmory book index");
+    return false;
+  }
+  return true;
+}
+
+int64_t find(const std::string& documentHash) {
+  if (documentHash.empty()) return 0;
+  JsonDocument doc;
+  if (!PersistableStoreBase::readDocFromFile(INDEX_PATH, doc)) return 0;
+  return doc[documentHash.c_str()] | static_cast<int64_t>(0);
+}
+}  // namespace GrimmoryBookIndex

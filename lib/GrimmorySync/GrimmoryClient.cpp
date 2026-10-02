@@ -7,6 +7,7 @@
 #endif
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderDocumentId.h>
 #include <Logging.h>
 #include <MD5Builder.h>
 #include <SecureHttpClient.h>
@@ -409,6 +410,39 @@ GrimmoryClient::Error GrimmoryClient::downloadBook(const int64_t bookId, const s
     Storage.remove(partPath.c_str());
     return FILE_ERROR;
   }
+
+  // Remember which Grimmory book this file is, so progress sync can update
+  // Grimmory's main progress (the server cannot look a book up by hash).
+  const std::string documentHash = KOReaderDocumentId::calculate(destPath);
+  if (documentHash.empty() || !GrimmoryBookIndex::remember(documentHash, bookId)) {
+    LOG_ERR("GRIM", "Could not record Grimmory book %lld for %s", static_cast<long long>(bookId), destPath.c_str());
+  }
+  return OK;
+}
+
+GrimmoryClient::Error GrimmoryClient::updateReadProgress(const int64_t bookId, float percent) {
+  lastHttpCode = 0;
+  if (accessToken.empty()) return AUTH_FAILED;
+  if (insufficientHeap()) return LOW_MEMORY;
+  if (percent < 0.0f) percent = 0.0f;
+  if (percent > 100.0f) percent = 100.0f;
+
+  // epubProgress is the form Grimmory accepts without a book file ID; cfi is
+  // left out because CrossInk has no EPUB CFI for its position.
+  JsonDocument request;
+  request["bookId"] = bookId;
+  request["epubProgress"]["percentage"] = percent;
+  std::string body;
+  serializeJson(request, body);
+
+  freeink::SecureHttpClient http;
+  if (!beginRequest(http, "/api/v1/books/progress", true)) return NETWORK_ERROR;
+  http.addHeader("Content-Type", "application/json");
+  const int httpCode = http.POST(body);
+  lastHttpCode = httpCode;
+  http.end();
+  LOG_DBG("GRIM", "Progress %lld -> %.1f%% response: %d", static_cast<long long>(bookId), percent, httpCode);
+  if (httpCode < 200 || httpCode >= 300) return errorForStatus(httpCode);
   return OK;
 }
 
