@@ -7,6 +7,7 @@
 #include <FreeInkUIIcon.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <GrimmoryStore.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
@@ -91,6 +92,8 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "activities/grimmory/GrimmoryConnectActivity.h"
+#include "activities/grimmory/GrimmoryLibraryActivity.h"
 #include "activities/home/BookActions.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -103,6 +106,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "components/UITheme.h"
 #include "components/icons/tablerFilledIcons.h"
 #include "fontIds.h"
+#include "grimmory/ProgressSyncService.h"
 #include "network/UsbSerialFileTransfer.h"
 #ifdef SIMULATOR
 #include <SimulatorLifecycle.h>
@@ -475,7 +479,7 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
     return true;
   }
 
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!ProgressSync::hasCredentials()) {
     if (networkBootReady) return false;
     activityManager.pushActivity(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInputManager));
     return true;
@@ -494,7 +498,7 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
     return true;
   }
 
-  const DocumentMatchMethod matchMethod = KOREADER_STORE.getMatchMethod();
+  const DocumentMatchMethod matchMethod = ProgressSync::matchMethod();
   auto syncActivity = makeUniqueNoThrow<KOReaderSyncActivity>(renderer, mappedInputManager, std::move(epubPath),
                                                               matchMethod, readerOrientation);
   if (!syncActivity) {
@@ -1225,7 +1229,8 @@ void setup() {
       (FREEINK_MCU_S3 && (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC) ||
                           snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::OPDS) ||
                           snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER) ||
-                          snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)));
+                          snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS) ||
+                          snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::GRIMMORY_LIBRARY)));
   silentRebootMagic = 0;
   silentRebootTarget = 0;
   silentRebootPayload = 0;
@@ -1328,6 +1333,10 @@ void setup() {
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_AUTH) ||
              snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) {
     KOREADER_STORE.loadFromFile();
+    if (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::KOREADER_SYNC)) GRIMMORY_STORE.loadFromFile();
+  } else if (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::GRIMMORY_CONNECT) ||
+             snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::GRIMMORY_LIBRARY)) {
+    GRIMMORY_STORE.loadFromFile();
   }
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
@@ -1513,6 +1522,28 @@ void setup() {
           launched = true;
         } else {
           LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::GRIMMORY_CONNECT: {
+        auto connectActivity = makeUniqueNoThrow<GrimmoryConnectActivity>(renderer, mappedInputManager);
+        if (connectActivity) {
+          activityManager.replaceActivity(std::move(connectActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: Grimmory connect activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::GRIMMORY_LIBRARY: {
+        auto libraryActivity = makeUniqueNoThrow<GrimmoryLibraryActivity>(renderer, mappedInputManager);
+        if (libraryActivity) {
+          activityManager.replaceActivity(std::move(libraryActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: Grimmory library activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
         }
         break;

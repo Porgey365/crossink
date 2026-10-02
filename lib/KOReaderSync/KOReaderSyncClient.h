@@ -44,6 +44,16 @@ struct KOReaderProgress {
 };
 
 /**
+ * Explicit sync endpoint that replaces the KOReader credential store for the
+ * current session (e.g. Grimmory's KOReader-compatible /api/koreader endpoint).
+ */
+struct KOReaderSyncEndpoint {
+  std::string baseUrl;   // without trailing slash, e.g. "https://books.example/api/koreader"
+  std::string username;  // x-auth-user
+  std::string md5Key;    // x-auth-key (MD5 of the sync password)
+};
+
+/**
  * HTTP client for KOReader sync API.
  *
  * Base URL: https://sync.koreader.rocks:443/
@@ -105,6 +115,14 @@ class KOReaderSyncClient {
    * Get human-readable error message.
    */
   static std::string errorString(Error error);
+
+  /**
+   * Route requests to an explicit endpoint instead of the KOReader credential
+   * store until clearEndpointOverride() is called.
+   */
+  static void setEndpointOverride(const KOReaderSyncEndpoint& endpoint);
+  static void clearEndpointOverride();
+  static bool hasEndpointOverride();
 
   /** HTTP status code from the last request (for diagnostics). */
   static int lastHttpCode;

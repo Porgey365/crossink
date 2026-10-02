@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Added
+
+- Grimmory integration in Settings > System > Grimmory: enter your Grimmory server URL, username and password once, then Connect. Sync Progress (reader menu, quick actions and the frontlight drawer) then syncs reading progress with Grimmory's KOReader-compatible endpoint, and Grimmory Library lets you browse all books or a shelf and download them to the SD card. The same account settings are editable in the web portal.
+
 ## [v1.6.0] - 2026-09-21
 
 ### Added

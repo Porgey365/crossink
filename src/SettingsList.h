@@ -16,6 +16,7 @@
 
 #include "CrossPointSettings.h"
 #include "DeviceCapabilities.h"
+#include "GrimmoryStore.h"
 #include "KOReaderCredentialStore.h"
 #include "QuickActions.h"
 #include "activities/settings/SettingsActivity.h"
@@ -869,6 +870,37 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
         },
         "koSyncBehavior", StrId::STR_KOREADER_SYNC));
 
+    // --- Grimmory (web-only, uses GrimmoryStore; Connect runs on the device) ---
+    add(SettingInfo::DynamicString(
+        StrId::STR_GRIMMORY_SERVER_URL, [] { return GRIMMORY_STORE.getServerUrl(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setServerUrl(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryServerUrl", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicString(
+        StrId::STR_USERNAME, [] { return GRIMMORY_STORE.getUsername(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setUsername(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryUsername", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicString(
+        StrId::STR_PASSWORD, [] { return GRIMMORY_STORE.getPassword(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setPassword(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryPassword", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_GRIMMORY_PROGRESS_SYNC, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+        [] { return static_cast<uint8_t>(GRIMMORY_STORE.getProgressSyncEnabled()); },
+        [](uint8_t v) {
+          GRIMMORY_STORE.setProgressSyncEnabled(v != 0);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryProgressSync", StrId::STR_GRIMMORY));
+
     // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
     add(SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
                             "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR));
@@ -1364,12 +1396,13 @@ inline std::vector<SettingInfo> buildDisplaySleepSettingsList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> systemSettings;
-  systemSettings.reserve(8);
+  systemSettings.reserve(9);
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_DEVICE, SettingAction::SystemDevice));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_GRIMMORY, SettingAction::Grimmory));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));

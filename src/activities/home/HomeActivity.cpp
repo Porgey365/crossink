@@ -41,6 +41,7 @@
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
+#include "grimmory/ProgressSyncService.h"
 
 namespace {
 constexpr uint32_t CAROUSEL_CACHE_MAGIC = 0x43434152;  // "CCAR"
@@ -1029,7 +1030,7 @@ bool HomeActivity::handleFrontlightPanelResult(const FrontlightPanelResult& resu
   resume.bookPath = result.bookPath;
   resume.returnHomeAfterReaderFlow = result.action == FrontlightPanelAction::NearbyPositionSync;
   if (result.action == FrontlightPanelAction::SyncProgress) {
-    if (KOREADER_STORE.hasCredentials()) APP_STATE.setPendingOverlayResume(resume);
+    if (ProgressSync::hasCredentials()) APP_STATE.setPendingOverlayResume(resume);
     return startGlobalSyncProgress();
   }
   if (result.action == FrontlightPanelAction::NearbyPositionSync) {
