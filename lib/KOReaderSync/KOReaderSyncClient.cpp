@@ -57,7 +57,7 @@ std::string activeUsername() { return endpointOverride ? endpointOverride->usern
 std::string activeMd5Key() { return endpointOverride ? endpointOverride->md5Key : KOREADER_STORE.getMd5Password(); }
 
 // The CrossPoint rich-position extension only applies to the default server.
-bool activeUsesCrossPointSyncServer() { return !endpointOverride && activeUsesCrossPointSyncServer(); }
+bool activeUsesCrossPointSyncServer() { return !endpointOverride && KOREADER_STORE.usesCrossPointSyncServer(); }
 
 constexpr bool isSuccessfulHttpCode(int httpCode) { return httpCode >= 200 && httpCode < 300; }
 
