@@ -322,6 +322,37 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
         },
         "koSyncBehavior", StrId::STR_KOREADER_SYNC));
 
+    // --- Grimmory (web-only, uses GrimmoryStore; Connect runs on the device) ---
+    add(SettingInfo::DynamicString(
+        StrId::STR_GRIMMORY_SERVER_URL, [] { return GRIMMORY_STORE.getServerUrl(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setServerUrl(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryServerUrl", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicString(
+        StrId::STR_USERNAME, [] { return GRIMMORY_STORE.getUsername(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setUsername(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryUsername", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicString(
+        StrId::STR_PASSWORD, [] { return GRIMMORY_STORE.getPassword(); },
+        [](const std::string& v) {
+          GRIMMORY_STORE.setPassword(v);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryPassword", StrId::STR_GRIMMORY));
+    add(SettingInfo::DynamicEnum(
+        StrId::STR_GRIMMORY_PROGRESS_SYNC, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+        [] { return static_cast<uint8_t>(GRIMMORY_STORE.getProgressSyncEnabled()); },
+        [](uint8_t v) {
+          GRIMMORY_STORE.setProgressSyncEnabled(v != 0);
+          GRIMMORY_STORE.saveToFile();
+        },
+        "grimmoryProgressSync", StrId::STR_GRIMMORY));
+
     // Legacy fields stay in JSON for one-time status bar migration; the web
     // editor uses /api/status-bars instead of exposing these controls.
     add(SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,

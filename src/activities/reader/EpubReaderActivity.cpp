@@ -71,6 +71,7 @@
 #include "clippings/ClippingTextMatcher.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
+#include "grimmory/ProgressSyncService.h"
 #if CROSSINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
 #endif
@@ -4177,7 +4178,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       break;
     }
     case EpubReaderMenuAction::SYNC: {
-      if (!KOREADER_STORE.hasCredentials()) {
+      if (!ProgressSync::hasCredentials()) {
         pauseReadingPaceTimer("koreader_settings");
         saveProgressBeforeRestart();
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput),
@@ -4534,7 +4535,7 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   resume.selectedIndex = result.state.selectedAction;
   resume.bookPath = epub->getPath();
   if (result.action == FrontlightPanelAction::SyncProgress) {
-    if (!KOREADER_STORE.hasCredentials()) return startGlobalSyncProgress();
+    if (!ProgressSync::hasCredentials()) return startGlobalSyncProgress();
     resume.readerOrientation = SETTINGS.orientation;
     resume.preserveReaderOrientation = true;
     // Use the reader's save-and-handoff path; a direct network restart skips onExit().

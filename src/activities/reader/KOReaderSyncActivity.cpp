@@ -31,6 +31,7 @@
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "grimmory/ProgressSyncService.h"
 #include "network/WifiUtils.h"
 
 namespace {
@@ -350,7 +351,9 @@ void KOReaderSyncActivity::performSync() {
           matchMethodName(primaryMethod), result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(),
           remoteProgress.percentage, remoteProgress.progress.c_str());
 
-  if (smartSyncEnabled()) {
+  // Grimmory only knows books by their binary hash, so a filename-hash probe
+  // would cost a TLS round trip for a guaranteed miss.
+  if (smartSyncEnabled() && !ProgressSync::usesGrimmory()) {
     const DocumentMatchMethod altMethod = alternateMatchMethod(primaryMethod);
     const std::string altHash = calculateDocumentHashForMethod(epubPath, altMethod);
     if (!altHash.empty() && altHash != documentHash) {
@@ -577,7 +580,7 @@ void KOReaderSyncActivity::performUpload() {
   // Rich CrossPoint position for the default CrossPoint sync server (lossless
   // CrossPoint<->CrossPoint sync). The HTTP client also enforces this boundary
   // before serializing the extension.
-  if (KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (KOREADER_STORE.usesCrossPointSyncServer() && !ProgressSync::usesGrimmory()) {
     KOReaderRichPosition pos;
     const float pct = localProgress.percentage < 0.0f   ? 0.0f
                       : localProgress.percentage > 1.0f ? 1.0f
@@ -592,7 +595,7 @@ void KOReaderSyncActivity::performUpload() {
   }
 
   // Optionally include document metadata (KOReader PR #15306)
-  if (KOREADER_STORE.getSendMetadata()) {
+  if (KOREADER_STORE.getSendMetadata() && !ProgressSync::usesGrimmory()) {
     // The Epub is released before the sync network calls and is only reloaded on the
     // remote-progress path (performSync). When uploading from NO_REMOTE_PROGRESS the
     // Epub is still null, so reload it here and guard the title/author reads to avoid
@@ -623,7 +626,10 @@ void KOReaderSyncActivity::performUpload() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
-      statusMessage = KOReaderSyncClient::errorString(result);
+      // Grimmory rejects progress for files whose hash matches no library book.
+      statusMessage = (result == KOReaderSyncClient::NOT_FOUND && ProgressSync::usesGrimmory())
+                          ? tr(STR_GRIMMORY_BOOK_NOT_IN_LIBRARY)
+                          : KOReaderSyncClient::errorString(result);
     }
     requestUpdate();
     return;
@@ -682,13 +688,14 @@ void KOReaderSyncActivity::onEnter() {
   }
 
   // Check for credentials first
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!ProgressSync::hasCredentials()) {
     state = NO_CREDENTIALS;
     requestUpdate();
     return;
   }
 
   // Past this point every path uses WiFi.
+  ProgressSync::applyEndpoint();
   sdFontSystem.releaseLoadedFont(renderer);
   wifiActivated = true;
 
@@ -711,6 +718,7 @@ void KOReaderSyncActivity::onExit() {
     touchOverrideActive = false;
   }
   Activity::onExit();
+  ProgressSync::clearEndpoint();
 
   if (wifiActivated) {
     wifiOff();
@@ -727,9 +735,9 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   const Rect header{screen.x, screen.y + metrics.topPadding, screen.width,
                     TouchHeaderBackButton::height(metrics, mappedInput)};
   if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, tr(STR_KOREADER_SYNC), true);
+    TouchHeaderBackButton::draw(renderer, header, ProgressSync::title(), true);
   } else {
-    GUI.drawHeader(renderer, header, tr(STR_KOREADER_SYNC));
+    GUI.drawHeader(renderer, header, ProgressSync::title());
   }
 
   int top = screen.y + screen.height / 2 - 40;

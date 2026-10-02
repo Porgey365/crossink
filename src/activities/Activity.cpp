@@ -4,6 +4,7 @@
 #include "CrossPointState.h"
 #include "GlobalActions.h"
 #include "KOReaderCredentialStore.h"
+#include "grimmory/ProgressSyncService.h"
 #include "reader/EpubReaderMenuModel.h"
 
 void Activity::onEnter() { LOG_DBG("ACT", "Entering activity: %s", name.c_str()); }
@@ -50,7 +51,7 @@ bool Activity::handleFrontlightPanelResult(const FrontlightPanelResult& result) 
   resume.bookPath = result.bookPath;
   resume.returnHomeAfterReaderFlow = result.action == FrontlightPanelAction::NearbyPositionSync;
   if (result.action == FrontlightPanelAction::SyncProgress) {
-    if (restoreHomeDrawer && KOREADER_STORE.hasCredentials()) APP_STATE.setPendingOverlayResume(resume);
+    if (restoreHomeDrawer && ProgressSync::hasCredentials()) APP_STATE.setPendingOverlayResume(resume);
     return startGlobalSyncProgress();
   }
   if (result.action == FrontlightPanelAction::NearbyPositionSync) {

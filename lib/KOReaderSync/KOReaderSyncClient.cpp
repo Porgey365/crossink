@@ -19,6 +19,7 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "KOReaderCredentialStore.h"
@@ -37,6 +38,27 @@ int KOReaderSyncClient::lastTransportError = 0;
 
 namespace {
 constexpr char DEVICE_ID[] = "crossink-device";
+
+// When set, requests go to this endpoint instead of the KOReader credential
+// store (used for Grimmory's KOReader-compatible sync endpoint).
+std::optional<KOReaderSyncEndpoint> endpointOverride;
+
+bool activeHasCredentials() {
+  if (endpointOverride) {
+    return !endpointOverride->baseUrl.empty() && !endpointOverride->username.empty() &&
+           !endpointOverride->md5Key.empty();
+  }
+  return KOREADER_STORE.hasCredentials();
+}
+
+std::string activeBaseUrl() { return endpointOverride ? endpointOverride->baseUrl : KOREADER_STORE.getBaseUrl(); }
+
+std::string activeUsername() { return endpointOverride ? endpointOverride->username : KOREADER_STORE.getUsername(); }
+
+std::string activeMd5Key() { return endpointOverride ? endpointOverride->md5Key : KOREADER_STORE.getMd5Password(); }
+
+// The CrossPoint rich-position extension only applies to the default server.
+bool activeUsesCrossPointSyncServer() { return !endpointOverride && activeUsesCrossPointSyncServer(); }
 
 constexpr bool isSuccessfulHttpCode(int httpCode) { return httpCode >= 200 && httpCode < 300; }
 
@@ -131,9 +153,11 @@ constexpr size_t MAX_AUTH_RESPONSE_BYTES = 4096;
 #ifdef SIMULATOR
 void addAuthHeaders(HTTPClient& http) {
   http.addHeader("Accept", "application/vnd.koreader.v1+json");
-  http.addHeader("x-auth-user", KOREADER_STORE.getUsername().c_str());
-  http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password().c_str());
-  http.setAuthorization(KOREADER_STORE.getUsername().c_str(), KOREADER_STORE.getPassword().c_str());
+  http.addHeader("x-auth-user", activeUsername().c_str());
+  http.addHeader("x-auth-key", activeMd5Key().c_str());
+  if (!endpointOverride) {
+    http.setAuthorization(KOREADER_STORE.getUsername().c_str(), KOREADER_STORE.getPassword().c_str());
+  }
 }
 
 bool isHttpsUrl(const std::string& url) { return url.rfind("https://", 0) == 0; }
@@ -142,8 +166,10 @@ bool isHttpsUrl(const std::string& url) { return url.rfind("https://", 0) == 0; 
 // KOSync scheme; Basic auth is added for Calibre-Web-Automated compatibility.
 void applyAuthHeaders(freeink::SecureHttpClient& http) {
   http.addHeader("Accept", "application/vnd.koreader.v1+json");
-  http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
-  http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  http.addHeader("x-auth-user", activeUsername());
+  http.addHeader("x-auth-key", activeMd5Key());
+  // Basic auth needs the plain password, which an endpoint override does not carry.
+  if (endpointOverride) return;
   const std::string credentials = KOREADER_STORE.getUsername() + ":" + KOREADER_STORE.getPassword();
   const String encoded = base64::encode(credentials.c_str());
   http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
@@ -166,12 +192,12 @@ bool insufficientHeap() {
 KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   lastHttpCode = 0;
   lastTransportError = 0;
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!activeHasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
     return NO_CREDENTIALS;
   }
 
-  const std::string url = KOREADER_STORE.getBaseUrl() + "/users/auth";
+  const std::string url = activeBaseUrl() + "/users/auth";
   LOG_DBG("KOSync", "Authenticating: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
@@ -286,18 +312,18 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
 KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
   lastHttpCode = 0;
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!activeHasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
     return NO_CREDENTIALS;
   }
 
-  const std::string url = KOREADER_STORE.getBaseUrl() + "/users/create";
+  const std::string url = activeBaseUrl() + "/users/create";
   LOG_DBG("KOSync", "Creating account: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
   JsonDocument doc;
-  doc["username"] = KOREADER_STORE.getUsername();
-  doc["password"] = KOREADER_STORE.getMd5Password();
+  doc["username"] = activeUsername();
+  doc["password"] = activeMd5Key();
   std::string body;
   serializeJson(doc, body);
 
@@ -325,12 +351,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
                                                           KOReaderProgress& outProgress) {
   lastHttpCode = 0;
   lastTransportError = 0;
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!activeHasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
     return NO_CREDENTIALS;
   }
 
-  const std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress/" + documentHash;
+  const std::string url = activeBaseUrl() + "/syncs/progress/" + documentHash;
   LOG_DBG("KOSync", "Getting progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
@@ -447,7 +473,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     outProgress.timestamp = doc["timestamp"].as<int64_t>();
 
     outProgress.position.reset();
-    if (KOREADER_STORE.usesCrossPointSyncServer()) {
+    if (activeUsesCrossPointSyncServer()) {
       const JsonObjectConst pos = doc["position"].as<JsonObjectConst>();
       if (!pos.isNull()) {
         KOReaderRichPosition rich;
@@ -480,12 +506,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgress& progress) {
   lastHttpCode = 0;
   lastTransportError = 0;
-  if (!KOREADER_STORE.hasCredentials()) {
+  if (!activeHasCredentials()) {
     LOG_DBG("KOSync", "No credentials configured");
     return NO_CREDENTIALS;
   }
 
-  const std::string url = KOREADER_STORE.getBaseUrl() + "/syncs/progress";
+  const std::string url = activeBaseUrl() + "/syncs/progress";
   LOG_DBG("KOSync", "Updating progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
@@ -502,7 +528,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   doc["percentage"] = progress.percentage;
   doc["device"] = progress.device;
   doc["device_id"] = DEVICE_ID;
-  if (progress.position.has_value() && KOREADER_STORE.usesCrossPointSyncServer()) {
+  if (progress.position.has_value() && activeUsesCrossPointSyncServer()) {
     // CrossPoint-specific extension: do not send it to third-party KOSync servers.
     const auto& p = *progress.position;
     auto pos = doc["position"].to<JsonObject>();
@@ -542,6 +568,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 
   if (isSuccessfulHttpCode(httpCode)) return OK;
   if (httpCode == 401) return AUTH_FAILED;
+  if (httpCode == 404) return NOT_FOUND;
   if (httpCode < 0) return NETWORK_ERROR;
   return SERVER_ERROR;
 #else
@@ -567,9 +594,17 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   // every sync against them fail after a successful pull — issue #2876.
   if (isSuccessfulHttpCode(httpCode)) return OK;
   if (httpCode == 401) return AUTH_FAILED;
+  // Grimmory answers 404 when no book in the library has this document hash.
+  if (httpCode == 404) return NOT_FOUND;
   return SERVER_ERROR;
 #endif
 }
+
+void KOReaderSyncClient::setEndpointOverride(const KOReaderSyncEndpoint& endpoint) { endpointOverride = endpoint; }
+
+void KOReaderSyncClient::clearEndpointOverride() { endpointOverride.reset(); }
+
+bool KOReaderSyncClient::hasEndpointOverride() { return endpointOverride.has_value(); }
 
 std::string KOReaderSyncClient::errorString(Error error) {
   switch (error) {

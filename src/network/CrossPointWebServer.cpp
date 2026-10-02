@@ -1675,7 +1675,7 @@ void CrossPointWebServer::handleGetSettings() const {
         // Passwords are write-only in the web UI. Returning the KOReader
         // value can expose credentials and, for legacy invalid data, emit
         // binary bytes that make the whole JSON response unparsable.
-        if (strcmp(s.key, "koPassword") == 0) {
+        if (strcmp(s.key, "koPassword") == 0 || strcmp(s.key, "grimmoryPassword") == 0) {
           doc["value"] = "";
         } else if (s.stringGetter) {
           doc["value"] = s.stringGetter();
