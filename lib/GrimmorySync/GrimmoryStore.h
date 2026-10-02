@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <PersistableStore.h>
 
+#include <cstdint>
 #include <string>
 
 /**
@@ -88,3 +89,18 @@ class GrimmoryStore : public PersistableStore<GrimmoryStore> {
 };
 
 #define GRIMMORY_STORE GrimmoryStore::getInstance()
+
+/**
+ * Maps the KOReader partial-MD5 hash of each book downloaded from Grimmory to
+ * its Grimmory book ID, stored in /.crosspoint/grimmory_books.json.
+ *
+ * Grimmory's REST progress endpoint needs the book ID, and the server offers no
+ * lookup by file hash, so only books downloaded through Grimmory Library can
+ * update Grimmory's main reading progress.
+ */
+namespace GrimmoryBookIndex {
+// Records (or replaces) the book ID for a file hash.
+bool remember(const std::string& documentHash, int64_t bookId);
+// Book ID for a file hash, or 0 when the book was not downloaded from Grimmory.
+int64_t find(const std::string& documentHash);
+}  // namespace GrimmoryBookIndex

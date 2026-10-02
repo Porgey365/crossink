@@ -1,6 +1,8 @@
 #include "KOReaderSyncActivity.h"
 
 #include <GfxRenderer.h>
+#include <GrimmoryClient.h>
+#include <GrimmoryStore.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -117,6 +119,30 @@ void wifiOff() {
   delay(100);
   WiFi.mode(WIFI_OFF);
   delay(100);
+}
+
+// Grimmory book ID for this file, or 0 when it was not downloaded from Grimmory
+// (or progress sync is not going to Grimmory).
+int64_t grimmoryBookIdFor(const std::string& documentHash) {
+  if (!ProgressSync::usesGrimmory()) return 0;
+  return GrimmoryBookIndex::find(documentHash);
+}
+
+// Grimmory's KOReader endpoint only updates the book's main progress when the
+// server can convert the xpointer to a CFI, so also send the percentage to
+// Grimmory's own progress endpoint. Call this before the KOReader upload: the
+// server copies main progress back into its KOReader record without an
+// xpointer, and the upload that follows restores the exact position.
+// Best effort: a failure here never fails the sync.
+void pushGrimmoryMainProgress(const int64_t bookId, const float fraction) {
+  if (bookId <= 0) return;
+  GrimmoryClient::Error result = GrimmoryClient::login();
+  if (result == GrimmoryClient::OK) result = GrimmoryClient::updateReadProgress(bookId, fraction * 100.0f);
+  GrimmoryClient::logout();
+  if (result != GrimmoryClient::OK) {
+    LOG_ERR("KOSync", "Grimmory main progress update failed for book %lld: %d (HTTP %d)",
+            static_cast<long long>(bookId), static_cast<int>(result), GrimmoryClient::lastHttpCode);
+  }
 }
 }  // namespace
 
@@ -454,6 +480,13 @@ void KOReaderSyncActivity::performSync() {
             documentHash.c_str(), localProgress.percentage, remoteProgress.percentage, delta,
             remoteProgress.progress.c_str(), remotePosition.spineIndex, remotePosition.pageNumber);
     if (std::fabs(delta) <= SAME_PROGRESS_EPSILON) {
+      // Grimmory's main progress may still be behind its KOReader record, so a
+      // Grimmory-downloaded book uploads anyway to bring both up to date.
+      if (grimmoryBookIdFor(primaryHash) > 0) {
+        documentHash = primaryHash;
+        performUpload();
+        return;
+      }
       completeAlreadySynced();
       return;
     }
@@ -551,6 +584,8 @@ void KOReaderSyncActivity::performUpload() {
   // Release the Epub before the network call so the TLS handshake has enough free heap
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
+
+  pushGrimmoryMainProgress(grimmoryBookIdFor(documentHash), localProgress.percentage);
 
   const auto result = KOReaderSyncClient::updateProgress(progress);
 

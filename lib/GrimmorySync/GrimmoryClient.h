@@ -19,9 +19,12 @@
  *   GET   /api/v1/shelves                        - the user's shelves
  *   GET   /api/v1/books/page                     - one page of books (optionally one shelf)
  *   GET   /api/v1/books/{id}/download            - the book file
+ *   POST  /api/v1/books/progress                 - Grimmory's own reading progress
  *
- * Progress itself goes through Grimmory's KOReader-compatible endpoint
- * (/api/koreader/syncs/progress) using KOReaderSyncClient.
+ * Exact positions go through Grimmory's KOReader-compatible endpoint
+ * (/api/koreader/syncs/progress) using KOReaderSyncClient. That endpoint only
+ * updates Grimmory's main progress when the server can convert the position
+ * to an EPUB CFI, so updateReadProgress() also sends the percentage.
  */
 class GrimmoryClient {
  public:
@@ -85,6 +88,12 @@ class GrimmoryClient {
   /** Stream a book's primary file to destPath (written via a .part file). */
   static Error downloadBook(int64_t bookId, const std::string& destPath, const ProgressCallback& progress,
                             const CancelCallback& shouldCancel);
+
+  /**
+   * Set Grimmory's main reading progress for an EPUB to a percentage (0-100).
+   * The server has no CFI from us, so its web reader resumes by percentage.
+   */
+  static Error updateReadProgress(int64_t bookId, float percent);
 
   /** Drop the in-memory access token (call when leaving the network session). */
   static void logout();
