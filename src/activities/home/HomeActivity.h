@@ -98,6 +98,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onGrimmoryLibraryOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
 

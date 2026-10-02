@@ -265,19 +265,33 @@ GrimmoryClient::Error GrimmoryClient::listBooks(const int64_t shelfId, const int
   if (insufficientHeap()) return LOW_MEMORY;
 
   const int size = pageSize < 1 ? 1 : (pageSize > MAX_PAGE_SIZE ? MAX_PAGE_SIZE : pageSize);
-  char path[160];
-  if (shelfId > 0) {
-    snprintf(path, sizeof(path), "/api/v1/books/page?sort=-addedOn&page=%d&size=%d&facet=shelf%%3A%lld", page, size,
-             static_cast<long long>(shelfId));
-  } else {
-    snprintf(path, sizeof(path), "/api/v1/books/page?sort=-addedOn&page=%d&size=%d", page, size);
-  }
 
+  // Sort by title and let the server drop books without an EPUB, so every page
+  // is full. Filtering on the device instead left pages with only a few books.
+  // file_type is a newer Grimmory facet; if the server rejects it, list
+  // everything and filter on the device as before.
   freeink::SecureHttpClient http;
-  if (!beginRequest(http, path, true)) return NETWORK_ERROR;
-  const int httpCode = http.GET();
-  lastHttpCode = httpCode;
-  LOG_DBG("GRIM", "Books page %d response: %d (%d bytes)", page, httpCode, http.getSize());
+  int httpCode = 0;
+  for (const bool epubOnly : {true, false}) {
+    char path[192];
+    int len = snprintf(path, sizeof(path), "/api/v1/books/page?sort=title&page=%d&size=%d", page, size);
+    if (shelfId > 0 && len > 0 && len < static_cast<int>(sizeof(path))) {
+      len += snprintf(path + len, sizeof(path) - len, "&facet=shelf%%3A%lld", static_cast<long long>(shelfId));
+    }
+    if (epubOnly && len > 0 && len < static_cast<int>(sizeof(path))) {
+      snprintf(path + len, sizeof(path) - len, "&facet=file_type%%3AEPUB");
+    }
+
+    if (!beginRequest(http, path, true)) return NETWORK_ERROR;
+    httpCode = http.GET();
+    lastHttpCode = httpCode;
+    LOG_DBG("GRIM", "Books page %d (epubOnly=%d) response: %d (%d bytes)", page, epubOnly, httpCode, http.getSize());
+    if (epubOnly && httpCode == 400) {
+      http.end();
+      continue;
+    }
+    break;
+  }
   if (httpCode < 200 || httpCode >= 300) {
     http.end();
     return errorForStatus(httpCode);
