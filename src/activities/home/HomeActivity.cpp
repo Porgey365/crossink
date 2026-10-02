@@ -26,6 +26,8 @@
 #include "../reader/BookStatsTracking.h"
 #include "../reader/EpubReaderUtils.h"
 #include "BookmarkStore.h"
+#include "GrimmoryStore.h"
+#include "SilentRestart.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -59,6 +61,7 @@ enum class HomeMenuAction {
   ContinueReading,
   Library,
   OpdsBrowser,
+  GrimmoryLibrary,
   ReadingStats,
   Bookmarks,
   FileTransfer,
@@ -269,6 +272,9 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
 
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Opds, HomeMenuAction::OpdsBrowser});
+  }
+  if (GRIMMORY_STORE.hasAccount()) {
+    items.push({tr(STR_GRIMMORY_LIBRARY), Library, HomeMenuAction::GrimmoryLibrary});
   }
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
@@ -1467,6 +1473,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::OpdsBrowser:
             onOpdsBrowserOpen();
             break;
+          case HomeMenuAction::GrimmoryLibrary:
+            onGrimmoryLibraryOpen();
+            break;
           case HomeMenuAction::ReadingStats:
             onReadingStatsOpen();
             break;
@@ -1711,6 +1720,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
+        break;
+      case HomeMenuAction::GrimmoryLibrary:
+        onGrimmoryLibraryOpen();
         break;
       case HomeMenuAction::ReadingStats:
         onReadingStatsOpen();
@@ -2333,6 +2345,10 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+// The library needs WiFi and TLS heap, so it runs after a restart into the
+// minimal network boot, the same way Settings > Grimmory opens it.
+void HomeActivity::onGrimmoryLibraryOpen() { silentRestartToNetwork(NetworkBootTarget::GRIMMORY_LIBRARY); }
 
 void HomeActivity::onReadingStatsOpen() {
   if (!SETTINGS.shouldTrackReadingStats()) return;
