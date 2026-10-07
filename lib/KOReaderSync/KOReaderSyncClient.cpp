@@ -42,6 +42,7 @@ constexpr char DEVICE_ID[] = "crossink-device";
 // When set, requests go to this endpoint instead of the KOReader credential
 // store (used for Grimmory's KOReader-compatible sync endpoint).
 std::optional<KOReaderSyncEndpoint> endpointOverride;
+freeink::SecureHttpClient* sharedHttp = nullptr;
 
 bool activeHasCredentials() {
   if (endpointOverride) {
@@ -572,8 +573,12 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   if (httpCode < 0) return NETWORK_ERROR;
   return SERVER_ERROR;
 #else
-  freeink::SecureHttpClient http;
+  freeink::SecureHttpClient ownHttp;
+  freeink::SecureHttpClient& http = sharedHttp ? *sharedHttp : ownHttp;
   http.setInsecure();
+  // A shared connection may carry another client's User-Agent; send this
+  // client's default, as a connection of its own would.
+  if (sharedHttp) http.setUserAgent("FreeInk-ESP32");
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -581,7 +586,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   applyAuthHeaders(http);
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.sendRequest("PUT", body);
-  http.end();
+  if (!sharedHttp) http.end();
   lastHttpCode = httpCode;
   lastTransportError = (httpCode < 0) ? httpCode : 0;
 
@@ -603,6 +608,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 void KOReaderSyncClient::setEndpointOverride(const KOReaderSyncEndpoint& endpoint) { endpointOverride = endpoint; }
 
 void KOReaderSyncClient::clearEndpointOverride() { endpointOverride.reset(); }
+
+void KOReaderSyncClient::shareConnection(freeink::SecureHttpClient* http) { sharedHttp = http; }
 
 bool KOReaderSyncClient::hasEndpointOverride() { return endpointOverride.has_value(); }
 

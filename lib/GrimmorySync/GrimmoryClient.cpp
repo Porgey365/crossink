@@ -11,9 +11,11 @@
 #include <Logging.h>
 #include <MD5Builder.h>
 #include <SecureHttpClient.h>
+#include <mbedtls/base64.h>
 
 #include <cctype>
 #include <cstdio>
+#include <ctime>
 #include <string>
 
 #include "GrimmoryStore.h"
@@ -35,6 +37,43 @@ constexpr int MAX_PAGE_SIZE = 20;
 
 // JWT for the current network session only; never written to the SD card.
 std::string accessToken;
+
+// Connection shared between requests (see GrimmoryClient::shareConnection).
+freeink::SecureHttpClient* sharedHttp = nullptr;
+
+// Closes the connection unless it is the shared one, which its owner closes.
+void finishRequest(freeink::SecureHttpClient& http) {
+  if (&http != sharedHttp) http.end();
+}
+
+// The clock counts as set from this time on (2026-01-01 UTC). Before NTP or
+// the RTC set it, time() is near 1970 and says nothing about token expiry.
+constexpr time_t PLAUSIBLE_NOW = 1767225600;
+
+// Expiry ("exp", seconds since the epoch) of a JWT, or 0 when unreadable.
+int64_t jwtExpiry(const std::string& token) {
+  const size_t first = token.find('.');
+  const size_t second = first == std::string::npos ? std::string::npos : token.find('.', first + 1);
+  if (second == std::string::npos) return 0;
+  std::string payload = token.substr(first + 1, second - first - 1);
+  for (char& ch : payload) {
+    if (ch == '-') ch = '+';
+    if (ch == '_') ch = '/';
+  }
+  while (payload.size() % 4 != 0) payload += '=';
+  std::string decoded(payload.size(), '\0');
+  size_t decodedLen = 0;
+  if (mbedtls_base64_decode(reinterpret_cast<unsigned char*>(&decoded[0]), decoded.size(), &decodedLen,
+                            reinterpret_cast<const unsigned char*>(payload.data()), payload.size()) != 0) {
+    return 0;
+  }
+  decoded.resize(decodedLen);
+  JsonDocument filter;
+  filter["exp"] = true;
+  JsonDocument doc;
+  if (deserializeJson(doc, decoded, DeserializationOption::Filter(filter))) return 0;
+  return doc["exp"] | static_cast<int64_t>(0);
+}
 
 bool insufficientHeap() {
   const uint32_t freeHeap = ESP.getFreeHeap();
@@ -114,7 +153,8 @@ GrimmoryClient::Error GrimmoryClient::login() {
   std::string body;
   serializeJson(request, body);
 
-  freeink::SecureHttpClient http;
+  freeink::SecureHttpClient ownHttp;
+  freeink::SecureHttpClient& http = sharedHttp ? *sharedHttp : ownHttp;
   if (!beginRequest(http, "/api/v1/auth/login", false)) return NETWORK_ERROR;
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.POST(body);
@@ -122,7 +162,7 @@ GrimmoryClient::Error GrimmoryClient::login() {
   LOG_DBG("GRIM", "Login response: %d", httpCode);
 
   if (httpCode < 200 || httpCode >= 300) {
-    http.end();
+    finishRequest(http);
     // Grimmory answers bad credentials with 401 or 400 depending on version.
     if (httpCode == 400) return AUTH_FAILED;
     return errorForStatus(httpCode);
@@ -132,7 +172,7 @@ GrimmoryClient::Error GrimmoryClient::login() {
   filter["accessToken"] = true;
   JsonDocument doc;
   const bool parsed = parseJson(http.getString(), doc, "Login", &filter);
-  http.end();
+  finishRequest(http);
   if (!parsed) return JSON_ERROR;
 
   const char* token = doc["accessToken"] | "";
@@ -150,8 +190,21 @@ GrimmoryClient::Error GrimmoryClient::login() {
 
 bool GrimmoryClient::resumeSession() {
   if (accessToken.empty()) accessToken = GRIMMORY_STORE.getCachedToken();
-  return !accessToken.empty();
+  if (accessToken.empty()) return false;
+  // A token past its expiry would only earn a 401 after a full HTTPS round
+  // trip, so go straight to login. Trusted only once the clock is set; a
+  // wrong clock costs at most the same extra request as before.
+  const int64_t expiry = jwtExpiry(accessToken);
+  const time_t now = time(nullptr);
+  if (expiry > 0 && now >= PLAUSIBLE_NOW && static_cast<int64_t>(now) + 60 >= expiry) {
+    LOG_DBG("GRIM", "Saved access token expired; logging in again");
+    forgetSession();
+    return false;
+  }
+  return true;
 }
+
+void GrimmoryClient::shareConnection(freeink::SecureHttpClient* http) { sharedHttp = http; }
 
 void GrimmoryClient::forgetSession() {
   accessToken.clear();
@@ -466,12 +519,13 @@ GrimmoryClient::Error GrimmoryClient::updateReadProgress(const int64_t bookId, f
   std::string body;
   serializeJson(request, body);
 
-  freeink::SecureHttpClient http;
+  freeink::SecureHttpClient ownHttp;
+  freeink::SecureHttpClient& http = sharedHttp ? *sharedHttp : ownHttp;
   if (!beginRequest(http, "/api/v1/books/progress", true)) return NETWORK_ERROR;
   http.addHeader("Content-Type", "application/json");
   const int httpCode = http.POST(body);
   lastHttpCode = httpCode;
-  http.end();
+  finishRequest(http);
   LOG_DBG("GRIM", "Progress %lld -> %.1f%% response: %d", static_cast<long long>(bookId), percent, httpCode);
   if (httpCode < 200 || httpCode >= 300) return errorForStatus(httpCode);
   return OK;

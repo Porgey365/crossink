@@ -3,6 +3,10 @@
 #include <optional>
 #include <string>
 
+namespace freeink {
+class SecureHttpClient;
+}
+
 /**
  * Optional document metadata sent alongside progress sync requests.
  * Mirrors the metadata object added in KOReader PR #15306.
@@ -123,6 +127,14 @@ class KOReaderSyncClient {
   static void setEndpointOverride(const KOReaderSyncEndpoint& endpoint);
   static void clearEndpointOverride();
   static bool hasEndpointOverride();
+
+  /**
+   * Send updateProgress() over this caller-owned connection, which stays open
+   * between requests, so a request just made to the same server (Grimmory's
+   * main progress update) does not cost a second TLS handshake. Pass nullptr
+   * to go back to one connection per request; the caller closes it.
+   */
+  static void shareConnection(freeink::SecureHttpClient* http);
 
   /** HTTP status code from the last request (for diagnostics). */
   static int lastHttpCode;

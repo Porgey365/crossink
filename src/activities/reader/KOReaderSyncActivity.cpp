@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <SecureHttpClient.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -668,9 +669,26 @@ void KOReaderSyncActivity::performUpload() {
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
 
+  // With Grimmory, both uploads go to the same server: keep one connection
+  // open for them so the second skips a TLS handshake.
+  freeink::SecureHttpClient sharedHttp;
+  const bool shareConnection = ProgressSync::usesGrimmory();
+  if (shareConnection) {
+    GrimmoryClient::shareConnection(&sharedHttp);
+    KOReaderSyncClient::shareConnection(&sharedHttp);
+  }
+  const unsigned long uploadStartMs = millis();
+
   pushGrimmoryMainProgress(documentHash, grimmoryBookIdFor(documentHash), localProgress.percentage);
 
   const auto result = KOReaderSyncClient::updateProgress(progress);
+  LOG_INF("KOSync", "Upload took %lu ms", millis() - uploadStartMs);
+
+  if (shareConnection) {
+    GrimmoryClient::shareConnection(nullptr);
+    KOReaderSyncClient::shareConnection(nullptr);
+    sharedHttp.end();
+  }
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
   wifiOff();

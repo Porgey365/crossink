@@ -4,6 +4,10 @@
 #include <string>
 #include <vector>
 
+namespace freeink {
+class SecureHttpClient;
+}
+
 /**
  * Minimal client for the Grimmory REST API (https://github.com/grimmory-tools/grimmory),
  * modeled on the endpoints the official KOReader Grimmory plugin uses.
@@ -77,6 +81,13 @@ class GrimmoryClient {
    * AUTH_FAILED means the token expired: call forgetSession() and login().
    */
   static bool resumeSession();
+  /**
+   * Send login() and updateReadProgress() over this caller-owned connection,
+   * which stays open between requests, instead of opening one per request.
+   * Each new HTTPS connection costs a full TLS handshake. Pass nullptr to go
+   * back to one connection per request; the caller closes the connection.
+   */
+  static void shareConnection(freeink::SecureHttpClient* http);
 
   /** Drop the in-memory and saved access token. */
   static void forgetSession();
