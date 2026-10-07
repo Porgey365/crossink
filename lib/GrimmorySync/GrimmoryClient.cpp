@@ -141,7 +141,24 @@ GrimmoryClient::Error GrimmoryClient::login() {
     return JSON_ERROR;
   }
   accessToken = token;
+  // Keep the token so the next sync can skip this login (and the TLS round
+  // trip, refresh token and audit entry each login costs on the server).
+  GRIMMORY_STORE.setCachedToken(accessToken);
+  if (!GRIMMORY_STORE.saveToFile()) LOG_ERR("GRIM", "Failed to save Grimmory access token");
   return OK;
+}
+
+bool GrimmoryClient::resumeSession() {
+  if (accessToken.empty()) accessToken = GRIMMORY_STORE.getCachedToken();
+  return !accessToken.empty();
+}
+
+void GrimmoryClient::forgetSession() {
+  accessToken.clear();
+  if (!GRIMMORY_STORE.getCachedToken().empty()) {
+    GRIMMORY_STORE.setCachedToken("");
+    GRIMMORY_STORE.saveToFile();
+  }
 }
 
 void GrimmoryClient::logout() {

@@ -128,21 +128,39 @@ int64_t grimmoryBookIdFor(const std::string& documentHash) {
   return GrimmoryBookIndex::find(documentHash);
 }
 
+// True when Grimmory's main progress for this book is already at this
+// percentage (the server keeps one decimal place).
+bool grimmoryMainProgressCurrent(const std::string& documentHash, const float fraction) {
+  const float last = GrimmoryBookIndex::lastSentPercent(documentHash);
+  return last >= 0.0f && std::fabs(last - fraction * 100.0f) < 0.05f;
+}
+
 // Grimmory's KOReader endpoint only updates the book's main progress when the
 // server can convert the xpointer to a CFI, so also send the percentage to
 // Grimmory's own progress endpoint. Call this before the KOReader upload: the
 // server copies main progress back into its KOReader record without an
 // xpointer, and the upload that follows restores the exact position.
 // Best effort: a failure here never fails the sync.
-void pushGrimmoryMainProgress(const int64_t bookId, const float fraction) {
-  if (bookId <= 0) return;
-  GrimmoryClient::Error result = GrimmoryClient::login();
-  if (result == GrimmoryClient::OK) result = GrimmoryClient::updateReadProgress(bookId, fraction * 100.0f);
+void pushGrimmoryMainProgress(const std::string& documentHash, const int64_t bookId, const float fraction) {
+  if (bookId <= 0 || grimmoryMainProgressCurrent(documentHash, fraction)) return;
+  const unsigned long startMs = millis();
+  const float percent = fraction * 100.0f;
+  GrimmoryClient::Error result = GrimmoryClient::AUTH_FAILED;
+  // Reuse the saved login; log in again only when there is none or it expired.
+  if (GrimmoryClient::resumeSession()) result = GrimmoryClient::updateReadProgress(bookId, percent);
+  if (result == GrimmoryClient::AUTH_FAILED) {
+    GrimmoryClient::forgetSession();
+    result = GrimmoryClient::login();
+    if (result == GrimmoryClient::OK) result = GrimmoryClient::updateReadProgress(bookId, percent);
+  }
   GrimmoryClient::logout();
-  if (result != GrimmoryClient::OK) {
+  if (result == GrimmoryClient::OK) {
+    GrimmoryBookIndex::setLastSentPercent(documentHash, percent);
+  } else {
     LOG_ERR("KOSync", "Grimmory main progress update failed for book %lld: %d (HTTP %d)",
             static_cast<long long>(bookId), static_cast<int>(result), GrimmoryClient::lastHttpCode);
   }
+  LOG_INF("KOSync", "Grimmory main progress took %lu ms", millis() - startMs);
 }
 }  // namespace
 
@@ -482,7 +500,7 @@ void KOReaderSyncActivity::performSync() {
     if (std::fabs(delta) <= SAME_PROGRESS_EPSILON) {
       // Grimmory's main progress may still be behind its KOReader record, so a
       // Grimmory-downloaded book uploads anyway to bring both up to date.
-      if (grimmoryBookIdFor(primaryHash) > 0) {
+      if (grimmoryBookIdFor(primaryHash) > 0 && !grimmoryMainProgressCurrent(primaryHash, localProgress.percentage)) {
         documentHash = primaryHash;
         performUpload();
         return;
@@ -585,7 +603,7 @@ void KOReaderSyncActivity::performUpload() {
   // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
   epub.reset();
 
-  pushGrimmoryMainProgress(grimmoryBookIdFor(documentHash), localProgress.percentage);
+  pushGrimmoryMainProgress(documentHash, grimmoryBookIdFor(documentHash), localProgress.percentage);
 
   const auto result = KOReaderSyncClient::updateProgress(progress);
 
