@@ -48,6 +48,7 @@ class GrimmoryLibraryActivity final : public Activity {
   std::vector<Row> rows;
   std::vector<GrimmoryClient::Book> books;
   bool loggedIn = false;
+  bool triedSavedSession = false;
   // 0 = shelf list; otherwise browsing books (shelfId -1 = whole library).
   bool inBookList = false;
   int64_t shelfId = 0;

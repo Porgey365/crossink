@@ -23,6 +23,9 @@ class GrimmoryStore : public PersistableStore<GrimmoryStore> {
   // KOReader-sync account Grimmory keeps for this user (fetched on Connect).
   std::string syncUsername;
   std::string syncKeyMd5;
+  // Grimmory access token from the last login (valid ~2 hours server-side),
+  // reused so each sync does not log in again.
+  std::string cachedToken;
   bool progressSyncEnabled = true;
   std::string downloadFolder = "/Grimmory";
 
@@ -56,6 +59,10 @@ class GrimmoryStore : public PersistableStore<GrimmoryStore> {
     ensureLoaded();
     return syncKeyMd5;
   }
+  const std::string& getCachedToken() const {
+    ensureLoaded();
+    return cachedToken;
+  }
   bool getProgressSyncEnabled() const {
     ensureLoaded();
     return progressSyncEnabled;
@@ -72,6 +79,7 @@ class GrimmoryStore : public PersistableStore<GrimmoryStore> {
   void setPassword(const std::string& pass);
   void setSyncCredentials(const std::string& user, const std::string& keyMd5);
   void clearSyncCredentials();
+  void setCachedToken(const std::string& token);
   void setProgressSyncEnabled(bool enabled);
   void setDownloadFolder(const std::string& folder);
 
@@ -103,4 +111,8 @@ namespace GrimmoryBookIndex {
 bool remember(const std::string& documentHash, int64_t bookId);
 // Book ID for a file hash, or 0 when the book was not downloaded from Grimmory.
 int64_t find(const std::string& documentHash);
+// Main-progress percentage (0-100) last sent for this hash, or -1 if none.
+float lastSentPercent(const std::string& documentHash);
+// Remember the percentage just sent, so an unchanged position is not re-sent.
+void setLastSentPercent(const std::string& documentHash, float percent);
 }  // namespace GrimmoryBookIndex

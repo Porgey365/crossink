@@ -393,6 +393,15 @@ void GrimmoryLibraryActivity::showError(const GrimmoryClient::Error error) {
 
 bool GrimmoryLibraryActivity::ensureLoggedIn() {
   if (loggedIn) return true;
+  // Try the token saved by the last login first; if it has expired, the
+  // AUTH_FAILED retry paths call back here and log in for real.
+  if (!triedSavedSession) {
+    triedSavedSession = true;
+    if (GrimmoryClient::resumeSession()) {
+      loggedIn = true;
+      return true;
+    }
+  }
   const auto result = GrimmoryClient::login();
   if (result != GrimmoryClient::OK) {
     showError(result);

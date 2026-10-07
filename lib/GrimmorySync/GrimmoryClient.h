@@ -72,6 +72,16 @@ class GrimmoryClient {
   static Error login();
 
   /**
+   * Reuse the access token saved by the last login, if any, instead of
+   * logging in. Returns false when there is none. A call that then fails with
+   * AUTH_FAILED means the token expired: call forgetSession() and login().
+   */
+  static bool resumeSession();
+
+  /** Drop the in-memory and saved access token. */
+  static void forgetSession();
+
+  /**
    * Read the KOReader-sync account Grimmory keeps for this user, turn sync on
    * if it is off, and cache the username + MD5 key in GrimmoryStore.
    */
